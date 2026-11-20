@@ -6,7 +6,7 @@
   "bridgewright.type.arch": "Arch",
   "bridgewright.type.arch.desc": "The deck curves up to a high point in the middle.",
   "bridgewright.type.stone_arch": "Stone Arch",
-  "bridgewright.type.stone_arch.desc": "An arch with a solid curved underside. Needs full blocks matching your slabs (stone bricks for stone brick slabs, planks for wooden slabs).",
+  "bridgewright.type.stone_arch.desc": "An arch with a solid curved underside. Needs full blocks matching your slabs, like stone bricks for stone brick slabs.",
   "bridgewright.type.trestle": "Trestle",
   "bridgewright.type.trestle.desc": "Fence legs every 4 blocks down to the ground or riverbed. Needs fences.",
   "bridgewright.type.suspension": "Suspension",
@@ -18,7 +18,7 @@
   "screen.bridgewright.clearance": "Boat clearance",
   "screen.bridgewright.off": "Off",
   "screen.bridgewright.blocks": "%s blocks",
-  "screen.bridgewright.clearance_hint": "Over water, the bridge is raised to leave %s blocks of air underneath. Trestles keep a channel clear of legs.",
+  "screen.bridgewright.clearance_hint": "Raised over water to leave %s blocks of air for boats.",
 
   "tooltip.bridgewright.settings": "%s, width %s, clearance %s",
   "tooltip.bridgewright.pos_a": "Start: %s",
