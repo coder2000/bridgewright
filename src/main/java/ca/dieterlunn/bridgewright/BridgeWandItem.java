@@ -1,7 +1,10 @@
 package ca.dieterlunn.bridgewright;
 
+import ca.dieterlunn.bridgewright.BridgePlan.Part;
+import ca.dieterlunn.bridgewright.client.ClientHooks;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
@@ -17,21 +20,22 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.state.properties.SlabType;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.fml.DistExecutor;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Map;
 
 /**
- * Use on a block to mark the two ends of a bridge, then use on air to build it from slabs and
- * fences in your inventory.
+ * Use on a block to mark the two ends of a bridge, then use in the air to build it from slabs and
+ * fences in your inventory. Sneak + use in the air opens the settings screen.
  */
 public class BridgeWandItem extends Item {
     private static final String POS_A = "PosA";
     private static final String POS_B = "PosB";
     private static final String DIM = "Dim";
-    private static final String WIDTH = "Width";
+    private static final int MAX_PREVIEW_PARTICLES = 600;
 
     public BridgeWandItem(Properties properties) {
         super(properties);
@@ -70,10 +74,22 @@ public class BridgeWandItem extends Item {
                 return InteractionResult.SUCCESS;
             }
             tag.putLong(POS_B, deckPos.asLong());
-            BridgePlan plan = BridgePlan.compute(a, deckPos, getWidth(stack));
-            message(player, Component.translatable("message.bridgewright.pos_b", fmt(deckPos),
-                    (int) Math.round(plan.length), plan.deck.size(), plan.railings.size()));
-            if (player instanceof ServerPlayer sp) preview((ServerLevel) level, sp, plan);
+            double dx = deckPos.getX() - a.getX(), dz = deckPos.getZ() - a.getZ();
+            int maxLength = BridgewrightConfig.MAX_LENGTH.get();
+            if (Math.sqrt(dx * dx + dz * dz) > maxLength) {
+                message(player, Component.translatable("message.bridgewright.too_long",
+                        (int) Math.round(Math.sqrt(dx * dx + dz * dz)), maxLength).withStyle(ChatFormatting.RED));
+                return InteractionResult.SUCCESS;
+            }
+            BridgeSettings settings = BridgeSettings.of(stack);
+            BridgePlan plan = BridgePlan.compute(level, a, deckPos, settings);
+            if (plan.error != null) {
+                message(player, Component.translatable(plan.error).withStyle(ChatFormatting.RED));
+            } else {
+                message(player, Component.translatable("message.bridgewright.pos_b", fmt(deckPos),
+                        settings.type().displayName(), (int) Math.round(plan.length), materials(plan)));
+                if (player instanceof ServerPlayer sp) preview((ServerLevel) level, sp, plan);
+            }
         }
         return InteractionResult.SUCCESS;
     }
@@ -81,15 +97,14 @@ public class BridgeWandItem extends Item {
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
-        if (level.isClientSide) return InteractionResultHolder.success(stack);
 
         if (player.isShiftKeyDown()) {
-            int next = getWidth(stack) + 2;
-            if (next > maxWidth()) next = 1;
-            stack.getOrCreateTag().putInt(WIDTH, next);
-            message(player, Component.translatable("message.bridgewright.width", next));
-            return InteractionResultHolder.success(stack);
+            if (level.isClientSide) {
+                DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ClientHooks.openWandScreen(hand));
+            }
+            return InteractionResultHolder.sidedSuccess(stack, level.isClientSide);
         }
+        if (level.isClientSide) return InteractionResultHolder.success(stack);
 
         CompoundTag tag = stack.getTag();
         if (tag == null || !tag.contains(POS_A, Tag.TAG_LONG) || !tag.contains(POS_B, Tag.TAG_LONG)) {
@@ -103,14 +118,17 @@ public class BridgeWandItem extends Item {
 
         BlockPos a = BlockPos.of(tag.getLong(POS_A));
         BlockPos b = BlockPos.of(tag.getLong(POS_B));
-        BridgePlan plan = BridgePlan.compute(a, b, getWidth(stack));
         int maxLength = BridgewrightConfig.MAX_LENGTH.get();
-        if (plan.length > maxLength) {
+        double dx = b.getX() - a.getX(), dz = b.getZ() - a.getZ();
+        double length = Math.sqrt(dx * dx + dz * dz);
+        if (length > maxLength) {
             message(player, Component.translatable("message.bridgewright.too_long",
-                    (int) Math.round(plan.length), maxLength).withStyle(ChatFormatting.RED));
+                    (int) Math.round(length), maxLength).withStyle(ChatFormatting.RED));
             return InteractionResultHolder.fail(stack);
         }
 
+        // Plan against the world as it is now, with the wand's current settings.
+        BridgePlan plan = BridgePlan.compute(level, a, b, BridgeSettings.of(stack));
         if (BridgeBuilder.build((ServerLevel) level, (ServerPlayer) player, plan)) {
             clear(tag);
             return InteractionResultHolder.success(stack);
@@ -127,7 +145,11 @@ public class BridgeWandItem extends Item {
     @Override
     public void appendHoverText(ItemStack stack, @Nullable Level level, List<Component> tooltip, TooltipFlag flag) {
         CompoundTag tag = stack.getTag();
-        tooltip.add(Component.translatable("tooltip.bridgewright.width", getWidth(stack)).withStyle(ChatFormatting.GRAY));
+        BridgeSettings s = BridgeSettings.of(stack);
+        tooltip.add(Component.translatable("tooltip.bridgewright.settings", s.type().displayName(), s.width(),
+                s.clearance() == 0 ? Component.translatable("screen.bridgewright.off")
+                        : Component.translatable("screen.bridgewright.blocks", s.clearance()))
+                .withStyle(ChatFormatting.GRAY));
         if (tag != null && tag.contains(POS_A, Tag.TAG_LONG)) {
             tooltip.add(Component.translatable("tooltip.bridgewright.pos_a", fmt(BlockPos.of(tag.getLong(POS_A)))).withStyle(ChatFormatting.GRAY));
         }
@@ -139,17 +161,14 @@ public class BridgeWandItem extends Item {
         tooltip.add(Component.translatable("tooltip.bridgewright.help3").withStyle(ChatFormatting.DARK_GRAY));
     }
 
-    /** Largest odd width allowed by the config. */
-    private static int maxWidth() {
-        int max = BridgewrightConfig.MAX_WIDTH.get();
-        return max % 2 == 0 ? max - 1 : max;
-    }
-
-    public static int getWidth(ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        int w = tag != null && tag.contains(WIDTH, Tag.TAG_INT) ? tag.getInt(WIDTH) : 3;
-        w = Math.max(1, Math.min(w, maxWidth()));
-        return w % 2 == 0 ? w - 1 : w;
+    /** "12 slabs, 30 fences, 40 blocks" (only the materials this bridge uses). */
+    private static Component materials(BridgePlan plan) {
+        int slabs = plan.count(Part.SLAB_BOTTOM, Part.SLAB_TOP);
+        int fences = plan.count(Part.FENCE);
+        int full = plan.count(Part.FULL);
+        return full > 0
+                ? Component.translatable("message.bridgewright.materials_full", slabs, fences, full)
+                : Component.translatable("message.bridgewright.materials", slabs, fences);
     }
 
     private static void clear(CompoundTag tag) {
@@ -158,16 +177,22 @@ public class BridgeWandItem extends Item {
         tag.remove(DIM);
     }
 
-    /** Shows the planned deck with particles: green for walkway, white for railing posts. */
+    /** Shows the planned bridge with particles: green for the deck, white for fences, sparks for masonry. */
     private static void preview(ServerLevel level, ServerPlayer player, BridgePlan plan) {
-        int shown = 0;
-        for (Map.Entry<BlockPos, SlabType> e : plan.deck.entrySet()) {
-            if (shown++ > 400) break;
+        int every = Math.max(1, plan.parts.size() / MAX_PREVIEW_PARTICLES + 1);
+        int i = 0;
+        for (Map.Entry<BlockPos, Part> e : plan.parts.entrySet()) {
+            if (i++ % every != 0) continue;
             BlockPos p = e.getKey();
-            double y = p.getY() + (e.getValue() == SlabType.TOP ? 1.05 : 0.55);
-            boolean rail = plan.railings.contains(p.above());
-            level.sendParticles(player, rail ? ParticleTypes.END_ROD : ParticleTypes.HAPPY_VILLAGER, true,
-                    p.getX() + 0.5, y, p.getZ() + 0.5, 1, 0, 0, 0, 0);
+            ParticleOptions particle;
+            double y;
+            switch (e.getValue()) {
+                case SLAB_BOTTOM -> { particle = ParticleTypes.HAPPY_VILLAGER; y = 0.55; }
+                case SLAB_TOP -> { particle = ParticleTypes.HAPPY_VILLAGER; y = 1.05; }
+                case FULL -> { particle = ParticleTypes.CRIT; y = 0.5; }
+                default -> { particle = ParticleTypes.END_ROD; y = 0.5; }
+            }
+            level.sendParticles(player, particle, true, p.getX() + 0.5, p.getY() + y, p.getZ() + 0.5, 1, 0, 0, 0, 0);
         }
     }
 

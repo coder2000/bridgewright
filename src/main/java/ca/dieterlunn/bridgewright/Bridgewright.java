@@ -1,5 +1,6 @@
 package ca.dieterlunn.bridgewright;
 
+import ca.dieterlunn.bridgewright.network.BridgewrightNetwork;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
@@ -27,6 +28,7 @@ public class Bridgewright {
         ITEMS.register(modBus);
         modBus.addListener(this::addCreative);
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, BridgewrightConfig.SPEC);
+        BridgewrightNetwork.register();
     }
 
     private void addCreative(BuildCreativeModeTabContentsEvent event) {
