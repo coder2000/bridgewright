@@ -1,6 +1,7 @@
 package ca.dieterlunn.bridgewright;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
@@ -22,12 +23,14 @@ import java.util.Map;
  * ramps use top and bottom slabs and never climb more than half a block per block.
  */
 public final class BridgePlan {
-    public enum Part { SLAB_BOTTOM, SLAB_TOP, FULL, FENCE }
+    public enum Part { SLAB_BOTTOM, SLAB_TOP, FULL, STAIR, FENCE }
 
     private static final int NONE = Integer.MIN_VALUE;
     private static final int MAX_DROP = 64;
 
     public final Map<BlockPos, Part> parts = new LinkedHashMap<>();
+    /** Which way each upside-down {@link Part#STAIR} faces (towards the lower masonry beside it). */
+    public final Map<BlockPos, Direction> stairFacing = new HashMap<>();
     public final BridgeType type;
     public final double length;
     /** Height change between the ends, in half blocks. */
@@ -137,7 +140,7 @@ public final class BridgePlan {
         }
 
         switch (type) {
-            case STONE_ARCH -> addStoneArch(level, plan, cols, deck, req, bigK);
+            case STONE_ARCH -> addStoneArch(level, plan, cols, deck, req, bigK, a, b);
             case TRESTLE -> addTrestle(level, plan, cols, deck, water, clearance, width, bigK);
             case SUSPENSION -> addSuspension(plan, cols, deck, bigK);
             default -> {
@@ -192,23 +195,53 @@ public final class BridgePlan {
         return cols;
     }
 
-    /** Solid spandrels under the deck, curving down to meet the banks. */
-    private static void addStoneArch(Level level, BridgePlan plan, List<Col> cols, int[] deck, int[] req, int bigK) {
-        double archDepth = Math.max(3, bigK / 2.0);
+    /**
+     * Solid masonry under the deck down to an elliptical arch: it springs from bank level at the
+     * ends and rises to a crown one block thick in the middle. Each step in the curve gets an
+     * upside-down stair to smooth it.
+     */
+    private static void addStoneArch(Level level, BridgePlan plan, List<Col> cols, int[] deck, int[] req,
+                                     int bigK, BlockPos a, BlockPos b) {
+        int spring = Math.min(a.getY(), b.getY()) - 1;               // the clicked bank blocks
+        int crown = Math.max(spring, Math.floorDiv(deck[bigK / 2], 2) - 1); // one block under the deck
+
+        // Lowest masonry block in each column (or the deck itself if there's no masonry).
+        Map<Long, Integer> lowest = new HashMap<>();
+        Map<Long, Col> byPos = new HashMap<>();
         for (Col c : cols) {
-            double f = (double) c.k / bigK;
-            double u = 2 * f - 1;
-            int depth = (int) Math.round((1 - Math.sqrt(Math.max(0, 1 - u * u))) * archDepth);
+            double u = 2.0 * c.k / bigK - 1;
+            int intrados = (int) Math.round(spring + (crown - spring) * Math.sqrt(Math.max(0, 1 - u * u)));
             int y = Math.floorDiv(deck[c.k], 2);
-            int lowest = y;
-            for (int yy = y - 1; yy >= y - 1 - depth && yy > y - MAX_DROP; yy--) {
-                if (req[c.k] != NONE && 2 * yy < req[c.k]) break; // keep the opening clear for boats
+            int low = y;
+            for (int yy = y - 1; yy >= intrados && yy > y - MAX_DROP; yy--) {
                 BlockPos p = new BlockPos(c.x, yy, c.z);
                 if (level.isOutsideBuildHeight(p) || !level.getBlockState(p).canBeReplaced()) break;
                 plan.parts.putIfAbsent(p, Part.FULL);
-                lowest = yy;
+                low = yy;
             }
-            if (req[c.k] != NONE && 2 * lowest < req[c.k]) plan.clearanceShort = true;
+            lowest.put(pack(c.x, c.z), low);
+            byPos.put(pack(c.x, c.z), c);
+            // Boats go through the middle of the arch, so that's where the clearance counts.
+            if (Math.abs(u) < 0.34 && req[c.k] != NONE && 2 * low < req[c.k]) plan.clearanceShort = true;
+        }
+
+        // Where a column's underside is higher than its neighbour along the bridge, fill the
+        // corner with an upside-down stair facing that (lower) neighbour.
+        Direction along = Direction.getNearest(b.getX() - a.getX(), 0, b.getZ() - a.getZ());
+        for (Map.Entry<Long, Integer> e : lowest.entrySet()) {
+            Col c = byPos.get(e.getKey());
+            int low = e.getValue();
+            for (Direction dir : new Direction[]{along, along.getOpposite()}) {
+                Integer neighbour = lowest.get(pack(c.x + dir.getStepX(), c.z + dir.getStepZ()));
+                if (neighbour == null || neighbour >= low) continue;
+                BlockPos p = new BlockPos(c.x, low - 1, c.z);
+                if (req[c.k] != NONE && 2 * p.getY() < req[c.k]) break; // don't block the boat opening
+                if (plan.parts.containsKey(p) || level.isOutsideBuildHeight(p)
+                        || !level.getBlockState(p).canBeReplaced()) break;
+                plan.parts.put(p, Part.STAIR);
+                plan.stairFacing.put(p, dir);
+                break;
+            }
         }
     }
 

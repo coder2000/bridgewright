@@ -19,6 +19,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.CrossCollisionBlock;
 import net.minecraft.world.level.block.SlabBlock;
 import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.state.properties.Half;
 import net.minecraft.world.level.block.WallBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -74,15 +76,20 @@ public final class BridgeBuilder {
             }
         }
 
+        // Stairs smooth the underside of a stone arch. They're optional: without any, it's left stepped.
+        Item stairs = plan.count(Part.STAIR) > 0 ? pickStairs(player, slab, creative) : null;
+
         // Work out what actually needs placing; anything solid already in the way is left alone.
         Map<Part, List<BlockPos>> todo = new EnumMap<>(Part.class);
         for (Part p : Part.values()) todo.put(p, new ArrayList<>());
         for (Map.Entry<BlockPos, Part> e : plan.parts.entrySet()) {
             if (e.getValue() == Part.FENCE && fence == null) continue; // no fences: no railings
+            if (e.getValue() == Part.STAIR && stairs == null) continue;
             if (canPlace(level, player, e.getKey())) todo.get(e.getValue()).add(e.getKey());
         }
         int needSlabs = todo.get(Part.SLAB_BOTTOM).size() + todo.get(Part.SLAB_TOP).size();
         int needFull = todo.get(Part.FULL).size();
+        int needStairs = todo.get(Part.STAIR).size();
         int needFences = todo.get(Part.FENCE).size();
 
         if (!creative) {
@@ -90,6 +97,7 @@ public final class BridgeBuilder {
             boolean any = false;
             any |= addShortage(missing, any, player, slab, needSlabs);
             if (full != null) any |= addShortage(missing, any, player, full, needFull);
+            if (stairs != null) any |= addShortage(missing, any, player, stairs, needStairs);
             if (fence != null) any |= addShortage(missing, any, player, fence, needFences);
             if (any) {
                 error(player, Component.translatable("message.bridgewright.missing", missing));
@@ -105,6 +113,15 @@ public final class BridgeBuilder {
             List<BlockPos> fills = todo.get(Part.FULL);
             fills.sort((p, q) -> Integer.compare(p.getY(), q.getY()));
             placed += placeAll(level, player, fills, p -> state, creative ? null : full);
+        }
+        if (stairs != null) {
+            Block stairBlock = ((BlockItem) stairs).getBlock();
+            placed += placeAll(level, player, todo.get(Part.STAIR), p -> {
+                BlockState s = stairBlock.defaultBlockState()
+                        .setValue(StairBlock.FACING, plan.stairFacing.getOrDefault(p, Direction.NORTH))
+                        .setValue(StairBlock.HALF, Half.TOP);
+                return Block.updateFromNeighbourShapes(s, level, p);
+            }, creative ? null : stairs);
         }
         placed += placeAll(level, player, todo.get(Part.SLAB_BOTTOM),
                 p -> slabBlock.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.BOTTOM), creative ? null : slab);
@@ -188,6 +205,26 @@ public final class BridgeBuilder {
         }
         if (!candidates.isEmpty()) return candidates.get(0); // creative uses it; survival is told they need it
         return creative ? Items.STONE_BRICKS : null;
+    }
+
+    /**
+     * Stairs for the arch underside: ones matching the slabs if carried (stone brick slabs → stone
+     * brick stairs), otherwise the first stairs in the inventory. Creative falls back to the match.
+     */
+    @Nullable
+    private static Item pickStairs(ServerPlayer player, Item slab, boolean creative) {
+        Item match = null;
+        ResourceLocation id = ForgeRegistries.ITEMS.getKey(slab);
+        if (id != null && id.getPath().endsWith("_slab")) {
+            String path = id.getPath();
+            ResourceLocation rl = ResourceLocation.tryBuild(id.getNamespace(), path.substring(0, path.length() - 5) + "_stairs");
+            Item item = rl == null ? null : ForgeRegistries.ITEMS.getValue(rl);
+            if (item instanceof BlockItem bi && bi.getBlock() instanceof StairBlock) match = item;
+        }
+        if (match != null && count(player, match) > 0) return match;
+        Item carried = findItem(player, s -> s.getItem() instanceof BlockItem bi && bi.getBlock() instanceof StairBlock);
+        if (carried != null) return carried;
+        return creative ? match : null;
     }
 
     private static List<Item> fullBlockCandidates(Item slab) {

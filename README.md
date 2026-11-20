@@ -25,13 +25,17 @@ Targets **Minecraft 1.20.1** on **Forge 47.4.0+**.
 | --- | --- | --- |
 | **Flat** | A straight deck between the two points | — |
 | **Arch** | The deck curves up to a high point in the middle (about a sixth of the length higher) | — |
-| **Stone Arch** | An arch with a solid curved underside that meets the banks | Full blocks matching your slabs |
+| **Stone Arch** | An arch with a solid curved underside that meets the banks | Full blocks matching your slabs; stairs optional |
 | **Trestle** | A row of fences under the deck every 4 blocks, with legs down to the ground or riverbed | Fences (required) |
 | **Suspension** | Fence towers at each end with cables sagging between them and hangers every 3 blocks | Fences (required), width 3+ |
 
 - **Stone Arch** finds the full block by the slab's name: stone brick slabs → stone bricks, oak
   slabs → oak planks, quartz slabs → quartz block, and so on. A raised half step becomes a full
   block, so the arch is solid all the way through.
+- The underside of a **Stone Arch** is an elliptical curve: it springs from the banks and rises to a
+  crown one block thick under the middle of the deck. If you carry stairs, each step of the curve
+  gets an upside-down stair to smooth it, using stairs that match your slabs when you have them,
+  otherwise the first stairs in your inventory. Without stairs the curve is left stepped.
 - Trestle legs are only built where they reach solid ground within 64 blocks.
 
 ## Boat clearance

@@ -166,8 +166,9 @@ public class BridgeWandItem extends Item {
         int slabs = plan.count(Part.SLAB_BOTTOM, Part.SLAB_TOP);
         int fences = plan.count(Part.FENCE);
         int full = plan.count(Part.FULL);
+        int stairs = plan.count(Part.STAIR);
         return full > 0
-                ? Component.translatable("message.bridgewright.materials_full", slabs, fences, full)
+                ? Component.translatable("message.bridgewright.materials_full", slabs, fences, full, stairs)
                 : Component.translatable("message.bridgewright.materials", slabs, fences);
     }
 
@@ -189,7 +190,7 @@ public class BridgeWandItem extends Item {
             switch (e.getValue()) {
                 case SLAB_BOTTOM -> { particle = ParticleTypes.HAPPY_VILLAGER; y = 0.55; }
                 case SLAB_TOP -> { particle = ParticleTypes.HAPPY_VILLAGER; y = 1.05; }
-                case FULL -> { particle = ParticleTypes.CRIT; y = 0.5; }
+                case FULL, STAIR -> { particle = ParticleTypes.CRIT; y = 0.5; }
                 default -> { particle = ParticleTypes.END_ROD; y = 0.5; }
             }
             level.sendParticles(player, particle, true, p.getX() + 0.5, p.getY() + y, p.getZ() + 0.5, 1, 0, 0, 0, 0);
